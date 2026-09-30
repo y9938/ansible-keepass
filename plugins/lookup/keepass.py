@@ -60,7 +60,7 @@ class LookupModule(LookupBase):
 
         if variables is not None:
             self._templar.available_variables = variables
-        variables_ = getattr(self._templar, "_available_variables", {})
+        variables_ = self._templar.available_variables
 
         # Check keepass database file (required)
         var_dbx = self._var(variables_.get("keepass_dbx", ""))
