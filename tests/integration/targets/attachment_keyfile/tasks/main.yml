@@ -1,0 +1,100 @@
+---
+- name: Create a temporary export directory
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: keepass-integration
+  register: export_dir
+
+- name: Verify keyfile authentication and idempotent export
+  vars:
+    export_path: "{{ export_dir.path }}/known.txt"
+    fixture_path: "{{ role_path }}/files"
+    expected_content: "KeePass attachment integration fixture\n"
+  block:
+    - name: Export attachment using only a keyfile
+      viczem.keepass.attachment:
+        database: "{{ fixture_path }}/ansible.kdbx"
+        keyfile: "{{ fixture_path }}/ansible.keyx"
+        entrypath: test
+        attachment: known.txt
+        dest: "{{ export_path }}"
+        mode: '0600'
+      register: first_export
+
+    - name: Read the exported file
+      ansible.builtin.slurp:
+        src: "{{ export_path }}"
+      register: first_content
+
+    - name: Verify first export wrote the expected bytes
+      ansible.builtin.assert:
+        that:
+          - first_export is changed
+          - first_content.content | b64decode == expected_content
+
+    - name: Export the same attachment again
+      viczem.keepass.attachment:
+        database: "{{ fixture_path }}/ansible.kdbx"
+        keyfile: "{{ fixture_path }}/ansible.keyx"
+        entrypath: test
+        attachment: known.txt
+        dest: "{{ export_path }}"
+        mode: '0600'
+      register: second_export
+
+    - name: Verify identical content causes no change
+      ansible.builtin.assert:
+        that:
+          - second_export is not changed
+
+    - name: Change destination permissions
+      ansible.builtin.file:
+        path: "{{ export_path }}"
+        mode: '0644'
+
+    - name: Restore destination permissions without rewriting content
+      viczem.keepass.attachment:
+        database: "{{ fixture_path }}/ansible.kdbx"
+        keyfile: "{{ fixture_path }}/ansible.keyx"
+        entrypath: test
+        attachment: known.txt
+        dest: "{{ export_path }}"
+        mode: '0600'
+      register: permissions_export
+
+    - name: Verify corrected permissions count as a change
+      ansible.builtin.assert:
+        that:
+          - permissions_export is changed
+
+    - name: Replace the destination with incorrect content
+      ansible.builtin.copy:
+        content: incorrect
+        dest: "{{ export_path }}"
+        mode: '0600'
+
+    - name: Restore the attachment
+      viczem.keepass.attachment:
+        database: "{{ fixture_path }}/ansible.kdbx"
+        keyfile: "{{ fixture_path }}/ansible.keyx"
+        entrypath: test
+        attachment: known.txt
+        dest: "{{ export_path }}"
+        mode: '0600'
+      register: restored_export
+
+    - name: Read the restored file
+      ansible.builtin.slurp:
+        src: "{{ export_path }}"
+      register: restored_content
+
+    - name: Verify restoration wrote the expected bytes
+      ansible.builtin.assert:
+        that:
+          - restored_export is changed
+          - restored_content.content | b64decode == expected_content
+  always:
+    - name: Remove the temporary export directory
+      ansible.builtin.file:
+        path: "{{ export_dir.path }}"
+        state: absent

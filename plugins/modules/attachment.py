@@ -31,8 +31,12 @@ options:
     required: true
     type: str
   password:
-    description: Password for KeePass database file
-    required: true
+    description: Password for KeePass database file (required if keyfile is not set)
+    required: false
+    type: str
+  keyfile:
+    description: Path to keyfile for KeePass database file (required if password is not set)
+    required: false
     type: str
   entrypath:
     description: Path to KeePass entry containing the attachment that should be exported
@@ -45,7 +49,7 @@ options:
   dest:
     description: Absolute path where the file should be exported to
     required: true
-    type: str
+    type: path
 
 attributes:
   check_mode:
@@ -59,10 +63,10 @@ attributes:
 EXAMPLES = r"""
 # Export a file
 - name: Export a file from KeePass
-  keepass:
+  viczem.keepass.attachment:
     database: database.kdbx
     password: somepassword
-    path: "group/subgroup/entry"
+    entrypath: "group/subgroup/entry"
     attachment: somefile.txt
     dest: somefile_exported.txt
 """
@@ -139,23 +143,35 @@ def export_attachment(module, result):
 
         b_data = kp_attachment.binary
 
-        tmpfd, tmpfile = tempfile.mkstemp()
-        f = os.fdopen(tmpfd, "wb")
-        f.write(b_data)
-        f.close()
-
-        module.atomic_move(
-            tmpfile,
-            to_native(
-                os.path.realpath(to_bytes(dest, errors="surrogate_or_strict")),
-                errors="surrogate_or_strict",
-            ),
-            unsafe_writes=module.params["unsafe_writes"],
+        real_dest = to_native(
+            os.path.realpath(to_bytes(dest, errors="surrogate_or_strict")),
+            errors="surrogate_or_strict",
         )
+        if os.path.exists(real_dest):
+            with open(real_dest, "rb") as existing_file:
+                same_content = existing_file.read() == b_data
+        else:
+            same_content = False
 
-        result["changed"] = True
-        result["msg"] = "attachment '{0}' exported to file '{1}'".format(
-            module.params["attachment"], dest
+        if not same_content:
+            tmpfd, tmpfile = tempfile.mkstemp()
+            try:
+                with os.fdopen(tmpfd, "wb") as output_file:
+                    output_file.write(b_data)
+                module.atomic_move(
+                    tmpfile,
+                    real_dest,
+                    unsafe_writes=module.params["unsafe_writes"],
+                )
+            finally:
+                if os.path.exists(tmpfile):
+                    os.unlink(tmpfile)
+
+        result["changed"] = not same_content
+        result["msg"] = "attachment '{0}' {1} file '{2}'".format(
+            attachment,
+            "exported to" if not same_content else "already matches",
+            dest,
         )
 
     except Exception as e:
@@ -172,7 +188,7 @@ def export_attachment(module, result):
 def main():
     module_args = dict(
         database=dict(type="str", required=True),
-        password=dict(type="str", no_log=True, required=True),
+        password=dict(type="str", no_log=True, required=False),
         keyfile=dict(type="str", no_log=True, required=False),
         entrypath=dict(type="str", required=True),
         attachment=dict(type="str", required=True),
@@ -182,6 +198,7 @@ def main():
     module = AnsibleModule(
         argument_spec=module_args,
         add_file_common_args=True,
+        required_one_of=[["password", "keyfile"]],
     )
 
     if not HAS_LIB:
