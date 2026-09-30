@@ -1,0 +1,2 @@
+plugins/lookup/keepass.py validate-modules:missing-gplv3-license # project is MIT licensed
+plugins/modules/attachment.py validate-modules:missing-gplv3-license # project is MIT licensed

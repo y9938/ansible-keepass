@@ -1,9 +1,44 @@
 __metaclass__ = type
 
+DOCUMENTATION = r"""
+---
+name: keepass
+author:
+  - Victor Zemtsov (@viczem)
+version_added: "0.7.5"
+short_description: Read a property from a KeePass entry
+description:
+  - Fetch a value from a KeePass entry by its path.
+options:
+  _terms:
+    description:
+      - The entry path followed by the property name.
+    required: true
+    type: list
+    elements: str
+notes:
+  - https://github.com/y9938/ansible-keepass
+"""
+
+EXAMPLES = r"""
+- name: Read a username
+  ansible.builtin.debug:
+    msg: "{{ lookup('viczem.keepass.keepass', 'path/to/entry', 'username') }}"
+"""
+RETURN = r"""
+_raw:
+  description:
+    - The requested KeePass value.
+    - For an attachment, the path to the temporary exported file.
+    - An empty list when closing the KeePass socket.
+  type: list
+  elements: str
+"""
+
 import argparse
+import fcntl
 import getpass
 import hashlib
-import fcntl
 import os
 import re
 import socket
@@ -16,34 +51,30 @@ import traceback
 from ansible.errors import AnsibleError
 from ansible.plugins.lookup import LookupBase
 from ansible.utils.display import Display
-from pykeepass import PyKeePass
-from pykeepass.exceptions import CredentialsError
 
-DOCUMENTATION = """
-    lookup: keepass
-    author: Victor Zemtsov <viczem.dev@gmail.com>
-    version_added: '0.7.5'
-    short_description: Fetching data from KeePass file
-    description:
-        - This lookup returns a value of a property of a KeePass entry
-        - which fetched by given path
-    options:
-      _terms:
-        description:
-          - first is a path to KeePass entry
-          - second is a property name of the entry, e.g. username or password
-        required: True
-    notes:
-      - https://github.com/viczem/ansible-keepass
+try:
+    from pykeepass import PyKeePass
+    from pykeepass.exceptions import CredentialsError
 
-    examples:
-      - "{{ lookup('keepass', 'path/to/entry', 'username') }}"
-      - "{{ lookup('keepass', 'path/to/entry', 'password') }}"
-      - "{{ lookup('keepass', 'path/to/entry', 'custom_properties', 'my_prop_name') }}"
-      - "{{ lookup('keepass', 'path/to/entry', 'attachments', 'my_file_name') }}"
-"""
+    HAS_PYKEEPASS = True
+    PYKEEPASS_IMPORT_ERROR = None
+except ImportError as import_error:
+    PyKeePass = None
+
+    class CredentialsError(Exception):
+        pass
+
+    HAS_PYKEEPASS = False
+    PYKEEPASS_IMPORT_ERROR = import_error
 
 display = Display()
+
+
+def _require_pykeepass():
+    if not HAS_PYKEEPASS:
+        raise AnsibleError(
+            "KeePass requires pykeepass in the Python environment running the lookup or socket server"
+        ) from PYKEEPASS_IMPORT_ERROR
 
 
 class LookupModule(LookupBase):
@@ -53,9 +84,10 @@ class LookupModule(LookupBase):
         return self._templar.template(var_value, fail_on_undefined=True)
 
     def run(self, terms, variables=None, **kwargs):
+        _require_pykeepass()
         if not terms:
             raise AnsibleError("KeePass: arguments is not set")
-        if not all(isinstance(_, str) for _ in terms):
+        if not all(isinstance(term, str) for term in terms):
             raise AnsibleError("KeePass: invalid argument type, all must be string")
 
         if variables is not None:
@@ -119,9 +151,9 @@ class LookupModule(LookupBase):
 
             attempts = 10
             success = False
-            for _ in range(attempts):
+            for attempt in range(attempts):
                 try:
-                    display.vvv("KeePass: try connect to socket %s/%s" % (_, attempts))
+                    display.vvv("KeePass: try connect to socket %s/%s" % (attempt, attempts))
                     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     sock.connect(socket_path)
                     # send password to the socket for decrypt keepass dbx
@@ -167,9 +199,9 @@ class LookupModule(LookupBase):
 
             data = b''
             while True:
-                _ = sock.recv(1024)
-                data += _
-                if len(_) < 1024:
+                chunk = sock.recv(1024)
+                data += chunk
+                if len(chunk) < 1024:
                     break
 
             resp = data.decode().splitlines()
@@ -283,9 +315,9 @@ def _keepass_socket(kdbx, kdbx_key, sock_path, ttl=60, kdbx_password=None):
                             break
 
                         path = [
-                            _.replace("\\/", "/")
-                            for _ in re.split(r"(?<!\\)/", arg[0])
-                            if _ != ""
+                            component.replace("\\/", "/")
+                            for component in re.split(r"(?<!\\)/", arg[0])
+                            if component
                         ]
                         entry = kp.find_entries_by_path(path, first=True)
 
@@ -339,9 +371,9 @@ def _keepass_socket(kdbx, kdbx_key, sock_path, ttl=60, kdbx_password=None):
 
                             prop_key = arg[2]
                             attachment = None
-                            for _ in entry.attachments:
-                                if _.filename == prop_key:
-                                    attachment = _
+                            for entry_attachment in entry.attachments:
+                                if entry_attachment.filename == prop_key:
+                                    attachment = entry_attachment
                                     break
                             if attachment is None:
                                 conn.send(
@@ -373,13 +405,13 @@ def _keepass_socket(kdbx, kdbx_key, sock_path, ttl=60, kdbx_password=None):
                         conn.send(_resp("fetch", 0, entry.deref(prop)))
     except CredentialsError:
         print("%s failed to decrypt" % kdbx)
-        sys.exit(1)
+        raise SystemExit(1)
     except FileNotFoundError as e:
         print(str(e))
-        sys.exit(1)
+        raise SystemExit(1)
     except ValueError as e:
         print(str(e))
-        sys.exit(1)
+        raise SystemExit(1)
     except socket.timeout:
         pass
     except KeyboardInterrupt:
@@ -450,6 +482,11 @@ if __name__ == "__main__":
     arg_parser.add_argument("--key", type=str, nargs="?", default=None)
     arg_parser.add_argument("--ask-pass", action="store_true")
     args = arg_parser.parse_args()
+
+    try:
+        _require_pykeepass()
+    except AnsibleError as error:
+        arg_parser.exit(2, "{0}\n".format(error))
 
     arg_kdbx = os.path.realpath(os.path.expanduser(os.path.expandvars(args.kdbx)))
     if args.key:

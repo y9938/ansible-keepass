@@ -4,32 +4,13 @@
 # Copyright: (c) 2022, Jimisola Laursen <jimisola@jimisola.com>
 # Copyright: (c) 2022, LFV <www.lfv.se>
 
-__metaclass__ = type
-
-import traceback
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.basic import missing_required_lib
-from ansible.module_utils._text import to_bytes, to_native
-
-import os
-import tempfile
-
-LIB_IMP_ERR = None
-try:
-    from pykeepass import PyKeePass
-
-    HAS_LIB = True
-except Exception:
-    HAS_LIB = False
-    LIB_IMP_ERR = traceback.format_exc()
-
-
 DOCUMENTATION = r"""
 ---
 module: attachment
 author:
   - Jimisola Laursen (@lfvjimisola)
   - Jimisola Laursen (@jimisola)
+  - y9938 (@y9938)
 
 short_description: Exports KeePass attachments
 description:
@@ -87,6 +68,25 @@ EXAMPLES = r"""
 """
 
 RETURN = r""" # """
+
+__metaclass__ = type
+
+import os
+import tempfile
+import traceback
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import missing_required_lib
+from ansible.module_utils.common.text.converters import to_bytes, to_native
+
+LIB_IMP_ERR = None
+try:
+    from pykeepass import PyKeePass
+
+    HAS_LIB = True
+except Exception:
+    HAS_LIB = False
+    LIB_IMP_ERR = traceback.format_exc()
 
 
 def check_file_attrs(module, result, diff):
