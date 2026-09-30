@@ -1,0 +1,130 @@
+name: Collection CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-build:
+    name: Lint and build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Install lint dependencies
+        run: python -m pip install ansible-core pykeepass ansible-lint
+
+      - name: Run ansible-lint
+        run: ansible-lint galaxy.yml meta/ plugins/ tests/integration/ README.md CHANGELOG.md
+
+      - name: Build and install collection artifact
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifacts"
+          ansible-galaxy collection build --output-path "$RUNNER_TEMP/artifacts"
+          mapfile -t artifacts < <(find "$RUNNER_TEMP/artifacts" -maxdepth 1 -type f -name '*.tar.gz')
+          test "${#artifacts[@]}" -eq 1
+          ansible-galaxy collection install "${artifacts[0]}" \
+            --force --collections-path "$RUNNER_TEMP/collections"
+
+  stable:
+    name: Core ${{ matrix.ansible-core }} / Python ${{ matrix.python }} / PyKeePass ${{ matrix.pykeepass }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ansible-core: '2.19.*'
+            python: '3.11'
+            pykeepass: '==4.0.3'
+          - ansible-core: '2.19.*'
+            python: '3.13'
+            pykeepass: '>=4.0.3'
+          - ansible-core: '2.20.*'
+            python: '3.12'
+            pykeepass: '>=4.0.3'
+          - ansible-core: '2.20.*'
+            python: '3.14'
+            pykeepass: '>=4.0.3'
+          - ansible-core: '2.21.*'
+            python: '3.12'
+            pykeepass: '>=4.0.3'
+          - ansible-core: '2.21.*'
+            python: '3.14'
+            pykeepass: '>=4.0.3'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test dependencies
+        run: python -m pip install "ansible-core==${{ matrix.ansible-core }}" "pykeepass${{ matrix.pykeepass }}"
+
+      - name: Prepare collection source tree
+        run: |
+          collection_dir="$RUNNER_TEMP/ansible_collections/viczem/keepass"
+          mkdir -p "$collection_dir"
+          rsync -a --exclude=.git --exclude=.ansible "$GITHUB_WORKSPACE/" "$collection_dir/"
+
+      - name: Run ansible-test sanity
+        working-directory: ${{ runner.temp }}/ansible_collections/viczem/keepass
+        run: ansible-test sanity --python "${{ matrix.python }}" --venv-system-site-packages
+
+      - name: Run ansible-test integration
+        working-directory: ${{ runner.temp }}/ansible_collections/viczem/keepass
+        run: ansible-test integration attachment_keyfile --local --python "${{ matrix.python }}"
+
+  devel-canary:
+    name: Ansible devel canary
+    if: github.event_name == 'schedule'
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Install development Ansible
+        run: python -m pip install 'git+https://github.com/ansible/ansible.git@devel' 'pykeepass>=4.0.3'
+
+      - name: Prepare collection source tree
+        run: |
+          collection_dir="$RUNNER_TEMP/ansible_collections/viczem/keepass"
+          mkdir -p "$collection_dir"
+          rsync -a --exclude=.git --exclude=.ansible "$GITHUB_WORKSPACE/" "$collection_dir/"
+
+      - name: Run ansible-test sanity
+        working-directory: ${{ runner.temp }}/ansible_collections/viczem/keepass
+        run: ansible-test sanity --python 3.13 --venv-system-site-packages
+
+      - name: Run ansible-test integration
+        working-directory: ${{ runner.temp }}/ansible_collections/viczem/keepass
+        run: ansible-test integration attachment_keyfile --local --python 3.13
