@@ -8,7 +8,7 @@ namespace: viczem
 name: keepass
 
 # The version of the collection. Must be compatible with semantic versioning
-version: 0.7.6
+version: 0.8.0
 
 # The path to the Markdown (.md) readme file. This path is relative to the root of the collection
 readme: README.md
@@ -16,12 +16,13 @@ readme: README.md
 # A list of the collection's content authors. Can be just the name or in the format 'Full Name <email> (url)
 # @nicks:irc/im.site#channel'
 authors:
-- Victor Zemtsov <viczem.dev@gmail.com>
+  - Victor Zemtsov <viczem.dev@gmail.com>
+  - y9938 (https://github.com/y9938)
 
 
 ### OPTIONAL but strongly recommended
 # A short summary description of the collection
-description: The collection provides plugins that allow to read data from KeePass file.
+description: Ansible collection for reading data and attachments from KeePass databases.
 
 # The path to the license file for the collection. This path is relative to the root of the collection. This key is
 # mutually exclusive with 'license'
@@ -34,6 +35,7 @@ tags:
   - lookup
   - module
   - plugin
+  - security
 
 # Collections that this collection requires to be installed for it to be usable. The key of the dict is the
 # collection label 'namespace.name'. The value is a version range
@@ -42,20 +44,19 @@ tags:
 dependencies: {}
 
 # The URL of the originating SCM repository
-repository: https://github.com/viczem/ansible-keepass
+repository: https://github.com/y9938/ansible-keepass
 
 # The URL to any online docs
-documentation: https://github.com/viczem/ansible-keepass/blob/main/doc
+documentation: https://github.com/y9938/ansible-keepass/tree/main/docs
 
 # The URL to the homepage of the collection/project
-homepage: https://github.com/viczem/ansible-keepass
+homepage: https://github.com/y9938/ansible-keepass
 
 # The URL to the collection issue tracker
-issues: https://github.com/viczem/ansible-keepass/issues
+issues: https://github.com/y9938/ansible-keepass/issues
 
 # A list of file glob-like patterns used to filter any files or directories that should not be included in the build
 # artifact. A pattern is matched from the relative path of the file or directory of the collection directory. This
 # uses 'fnmatch' to match the files or directories. Some directories and files like 'galaxy.yml', '*.pyc', '*.retry',
 # and '.git' are always filtered
 build_ignore: []
-
